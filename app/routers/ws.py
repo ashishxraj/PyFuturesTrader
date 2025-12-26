@@ -60,8 +60,8 @@ class ConnectionManager:
         if self.binance_client is None:
             try:
                 # Get credentials from environment variables
-                api_key = os.getenv("BINANCE_API_KEY", "your_testnet_api_key")
-                api_secret = os.getenv("BINANCE_API_SECRET", "your_testnet_api_secret")
+                api_key = os.getenv("binance_api_key", "your_testnet_api_key")
+                api_secret = os.getenv("binance_secret_key", "your_testnet_api_secret")
                 
                 self.binance_client = await AsyncClient.create(
                     api_key=api_key, 
