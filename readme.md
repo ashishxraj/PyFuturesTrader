@@ -7,7 +7,7 @@
 
 An algorithmic trading platform for Binance Futures with real-time market data, risk management, and a clean, modern web interface.
 
-## 🚀 Features
+## Features
 
 ### Core Trading Features
 - **Multiple Order Types**: Market, Limit, Stop-Limit, and Trailing Stop orders
@@ -23,7 +23,7 @@ An algorithmic trading platform for Binance Futures with real-time market data, 
 - **Account Overview**: Real-time balance and position tracking
 - **WebSocket Integration**: Live updates without page refreshes
 
-### 🔒 Security & Reliability
+### Security & Reliability
 - **API Key Management**: Secure handling of Binance credentials
 - **Rate Limiting**: Built-in protection against API rate limits
 - **Error Handling**: Comprehensive logging and error recovery
@@ -99,7 +99,7 @@ http://localhost:8000
    - Cancel orders directly from UI
    - Get real-time order updates
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 cryptotrader-pro/
@@ -123,7 +123,7 @@ cryptotrader-pro/
 └── README.md                # This file
 ```
 
-## 🧪 Testing
+## Testing
 
 ### 1. Test Connection
 ```bash
@@ -136,7 +136,7 @@ python test-api.py.py
 3. Verify order execution and account updates
 4. Monitor positions and P&L
 
-## 🌐 API Endpoints
+## API Endpoints
 
 ### REST API
 - `GET /api/account/balance` - Get account balance
@@ -179,7 +179,7 @@ docker run -d -p 8000:8000 --env-file .env PyFuturesTrader
 - **Time-in-Force**: GTC (Good Till Cancelled) by default
 - **Position Sizing**: Automatic calculation based on risk
 
-## 📊 Monitoring & Logging
+## Monitoring & Logging
 
 ### Log Files
 - `trading_bot.log` - Application logs
@@ -191,7 +191,7 @@ docker run -d -p 8000:8000 --env-file .env PyFuturesTrader
 - WebSocket connections
 - Error messages and exceptions
 
-<!-- ## 🛡️ Risk Management
+<!-- ##  Risk Management
 
 ### Built-in Protections
 1. **Position Sizing**: Limits based on account balance
@@ -205,7 +205,7 @@ docker run -d -p 8000:8000 --env-file .env PyFuturesTrader
 3. **Monitor Margin**: Keep margin usage below 50%
 4. **Regular Backups**: Export trade history regularly -->
 
-## 🚨 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -229,7 +229,7 @@ docker run -d -p 8000:8000 --env-file .env PyFuturesTrader
 - Review error messages in the web interface
 - Test API connectivity with `test_connection.py`
 
-## 🔮 Roadmap
+<!-- ## 🔮 Roadmap
 
 ### Planned Features
 - [ ] Strategy backtesting engine
@@ -239,9 +239,9 @@ docker run -d -p 8000:8000 --env-file .env PyFuturesTrader
 - [ ] Telegram/Email notifications
 - [ ] Performance analytics dashboard
 - [ ] Mobile-responsive design improvements
-- [ ] API documentation with Swagger
+- [ ] API documentation with Swagger -->
 
-### In Progress
+## In Progress
 - [x] WebSocket real-time data
 - [x] Advanced order types
 - [x] Risk management features
@@ -269,7 +269,7 @@ pytest
 black app/
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -283,14 +283,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Always test thoroughly on Testnet before using real funds
 - The developers are not responsible for any financial losses -->
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Binance API](https://binance-docs.github.io/apidocs/) for their comprehensive API
 - [python-binance](https://github.com/sammchardy/python-binance) library
 - [FastAPI](https://fastapi.tiangolo.com/) for the web framework
 - [Tailwind CSS](https://tailwindcss.com/) for styling
 
-## 📞 Support
+## Support
 
 For support, please:
 1. Check the [Issues](https://github.com/ashishxraj/PyFuturesTrader/issues) page
