@@ -1,22 +1,50 @@
-# app/main.py
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Optional, List, Dict
-import json
-import logging
 import asyncio
-from datetime import datetime
+import os
+from contextlib import asynccontextmanager
 
-from app.routers import orders, account, ws
-from app.bot import EnhancedTradingBot
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-# Initialize FastAPI app
-app = FastAPI(title="CryptoTrader Pro", version="1.0.0")
+from app.auth import verify_token
+from app.bot import AsyncTradingBot
+from app.database import init_db
+from app.routers import account, auth, orders, ws
+from app.websocket_manager import ResilientWebSocketManager
 
-# CORS middleware
+from dotenv import load_dotenv
+load_dotenv()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    bot = AsyncTradingBot(
+        api_key=os.getenv("BINANCE_API_KEY") or os.getenv("binance_api_key", ""),
+        api_secret=os.getenv("BINANCE_SECRET") or os.getenv("binance_secret_key", ""),
+        testnet=os.getenv("BINANCE_TESTNET", "true").lower() == "true",
+    )
+    app.state.bot = bot
+    app.state.ws_manager = ResilientWebSocketManager(bot)
+    app.state.background_tasks = [
+        asyncio.create_task(bot.keep_alive_listen_key()),
+        asyncio.create_task(bot.periodic_order_sync()),
+        asyncio.create_task(app.state.ws_manager.heartbeat()),
+    ]
+
+    try:
+        yield
+    finally:
+        for task in app.state.background_tasks:
+            task.cancel()
+        await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
+        await app.state.ws_manager.close_all_streams()
+        if bot.client:
+            await bot.client.close_connection()
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,30 +53,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
-app.include_router(account.router, prefix="/api/account", tags=["account"])
-app.include_router(ws.router, prefix="/ws", tags=["websocket"])
+app.include_router(auth.router, prefix="/api/auth")
+app.include_router(orders.router, prefix="/api/orders", dependencies=[Depends(verify_token)])
+app.include_router(account.router, prefix="/api/account", dependencies=[Depends(verify_token)])
+app.include_router(ws.router, prefix="/ws")
 
-# Serve static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+
 @app.get("/")
-async def read_index():
+async def index():
     return FileResponse("app/static/index.html")
-
-# Global bot instance (in production, use proper dependency injection)
-bot_instance = None
-
-def get_bot():
-    global bot_instance
-    if bot_instance is None:
-        # Initialize with environment variables or config
-        api_key = "your_testnet_api_key"
-        api_secret = "your_testnet_api_secret"
-        bot_instance = EnhancedTradingBot(api_key, api_secret, testnet=True)
-    return bot_instance
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
