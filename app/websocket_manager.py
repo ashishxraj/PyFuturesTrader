@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Set
+from typing import Dict, Set, Callable
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -123,12 +123,15 @@ class ResilientWebSocketManager:
         while not self._closing:
             await asyncio.sleep(interval_seconds)
             for websocket in list(self.active_connections):
-                await self.send_json(
-                    websocket,
-                    {"type": "heartbeat", "timestamp": int(time.time() * 1000)},
-                )
+                await self.send_json(websocket, {"type": "heartbeat", "timestamp": int(time.time() * 1000)})
 
-    async def _run_stream(self, websocket: WebSocket, stream_key: str, stream_factory, formatter):
+    async def _run_stream(
+        self,
+        websocket: WebSocket,
+        stream_key: str,
+        stream_factory: Callable,
+        formatter: Callable,
+    ):
         reconnect_delay = 1
         while not self._closing and websocket in self.active_connections:
             try:
@@ -141,10 +144,10 @@ class ResilientWebSocketManager:
                         if msg and msg.get("e") == "error":
                             raise RuntimeError(msg.get("m", "Binance stream error"))
                         formatted = formatter(msg)
+                        if asyncio.iscoroutine(formatted):
+                            formatted = await formatted
                         if formatted:
                             await self.send_json(websocket, formatted)
-                            if formatted.get("event_type") == "ORDER_TRADE_UPDATE":
-                                await self.bot.handle_order_trade_update(formatted["data"])
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -156,8 +159,12 @@ class ResilientWebSocketManager:
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, 60)
 
-    @staticmethod
-    def _format_user_data(msg: dict) -> dict:
+    async def _format_user_data(self, msg: dict) -> dict:
+        if msg.get("e") in ("outboundAccountPosition", "ACCOUNT_UPDATE"):
+            try:
+                await self.bot.sync_account()
+            except Exception:
+                logger.exception("Failed to sync account after user data event")
         return {
             "type": "user_data",
             "event_type": msg.get("e"),
