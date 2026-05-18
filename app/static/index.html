@@ -2,91 +2,196 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PyFuturesTrader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>PyFuturesTrader · Modern Terminal</title>
+    <!-- Google Fonts + Tailwind + Chart.js -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/assets/logo-duck.png">
+    <link rel="shortcut icon" type="image/png" href="/static/assets/logo-duck.png">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        /* Custom scrollbar styling */
+        * {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        }
+        /* subtle smooth transitions + custom scrollbar (modern) */
+        .card-transition {
+            transition: all 0.2s ease;
+        }
         .custom-scroll::-webkit-scrollbar {
-            width: 8px;
+            width: 5px;
+            height: 5px;
         }
         .custom-scroll::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
+            background: #f1f5f9;
+            border-radius: 10px;
         }
         .custom-scroll::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
+            background: #cbd5e1;
+            border-radius: 10px;
         }
         .custom-scroll::-webkit-scrollbar-thumb:hover {
-            background: #555;
+            background: #94a3b8;
+        }
+        /* make chart container responsive & ratio-locked */
+        .chart-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            max-height: 420px;
+        }
+        canvas#priceChart {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        input, select, button {
+            transition: all 0.15s ease;
+        }
+        .alert-slide {
+            animation: fadeSlide 0.25s ease-out;
+        }
+        @keyframes fadeSlide {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* skeleton / loading shimmer minimal */
+        .shimmer-line {
+            background: linear-gradient(90deg, #e2e8f0 0%, #f8fafc 50%, #e2e8f0 100%);
+            background-size: 200% auto;
+            animation: shimmer 1.2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
         }
     </style>
 </head>
-<body class="bg-gray-50 font-sans">
-    <header class="bg-white shadow sticky top-0 z-10">
-        <div class="container mx-auto px-4 py-4">
-            <h1 class="text-2xl md:text-3xl font-bold text-gray-800">PyFuturesTrader</h1>
-            <p class="text-sm md:text-base text-gray-600">Simplified Trading Bot for Binance Testnet</p>
+<body class="bg-gradient-to-br from-slate-50 to-gray-100 antialiased">
+
+    <!-- Header: clean glassmorphic -->
+    <header class="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-200/80 shadow-sm">
+        <div class="container mx-auto px-5 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+            <!-- IMAGE LOGO instead of text box -->
+                <img src="/static/assets/logo-duck.png" alt="PyFuturesTrader" class="h-8 w-auto object-contain xl:h-10">
+                <h1 class="text-xl md:text-2xl font-semibold tracking-tight text-black" style="font-family:Orbitron">PyFuturesTrader</h1>
+                <span class="hidden md:inline-block text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md border">testnet</span>
+            </div>
+            <button id="logoutButton" class="hidden text-sm font-medium px-4 py-2 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all shadow-none hover:shadow-sm">→ Logout</button>
         </div>
     </header>
 
-    <div class="container mx-auto px-4 py-6">
-        <!-- Alert Area -->
-        <div id="alertArea" class="hidden mb-6 p-4 rounded-lg"></div>
+    <!-- LOGIN PANEL -->
+    <div id="authPanel" class="container mx-auto px-5 py-12 max-w-md">
+        <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200/60 p-8">
+            <div class="mb-6 text-center">
+                <div class="mx-auto w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center mb-3">
+                    <svg class="w-6 h-6 text-indigo-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                </div>
+                <h2 class="text-2xl font-semibold text-gray-800">Access Terminal</h2>
+                <p class="text-gray-500 text-sm mt-1">Binance testnet credentials</p>
+            </div>
+            <form id="loginForm" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <input type="text" id="loginUsername" required class="w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-400/60 focus:border-indigo-400 transition-all text-sm px-4 py-2.5" autocomplete="username" placeholder="demo_user">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="loginPassword" required class="w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-400/60 transition-all text-sm px-4 py-2.5" autocomplete="current-password">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl shadow-sm transition-all duration-200">Sign in →</button>
+            </form>
+        </div>
+    </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <!-- Order Panel -->
-            <div class="bg-white shadow rounded-lg p-6 lg:col-span-1">
-                <h2 class="text-lg font-semibold text-gray-800 mb-4">Place Order</h2>
-                <form id="orderForm" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700">Symbol</label>
-                        <input type="text" id="symbol" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="e.g., BTCUSDT">
+    <!-- MAIN APP (shell) -->
+    <div id="appShell" class="container mx-auto px-5 lg:px-8 py-8 hidden">
+        <!-- Alert floating banner -->
+        <div id="alertArea" class="hidden mb-6 p-4 rounded-xl border-l-4 shadow-md alert-slide"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-7">
+            <!-- LEFT SIDEBAR: Order panel minimalist -->
+            <div class="lg:col-span-4 xl:col-span-3">
+                <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden sticky top-24">
+                    <div class="px-5 pt-6 pb-3 border-b border-gray-100">
+                        <div class="flex items-start gap-3">
+                            <span class="w-1 h-10 bg-black rounded-full shrink-0 mt-0.5"></span>
+                            <div>
+                                <h2 class="text-lg font-semibold text-gray-800">Execution Panel</h2>
+                                <p class="text-xs text-gray-400 mt-0.5">Spot • Futures • Margin</p>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700">Side</label>
-                        <select id="side" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
-                            <option value="BUY">BUY</option>
-                            <option value="SELL">SELL</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700">Order Type</label>
-                        <select id="orderType" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
-                            <option value="MARKET">Market</option>
-                            <option value="LIMIT">Limit</option>
-                            <option value="STOP_LIMIT">Stop-Limit</option>
-                        </select>
-                    </div>
-                    <div id="priceField" class="hidden">
-                        <label class="block text-sm font-medium text-gray-700">Price</label>
-                        <input type="number" id="price" step="0.0001" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="e.g., 50000">
-                    </div>
-                    <div id="stopPriceField" class="hidden">
-                        <label class="block text-sm font-medium text-gray-700">Stop Price</label>
-                        <input type="number" id="stopPrice" step="0.0001" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="e.g., 49000">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700">Quantity or Risk %</label>
-                        <input type="number" id="quantity" step="0.001" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="e.g., 0.001 or 2%">
-                        <p class="text-xs text-gray-500 mt-1">Enter quantity or risk percentage (e.g., 2 for 2% risk)</p>
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm">
-                        Place Order
-                    </button>
-                </form>
+                    <form id="orderForm" class="p-5 space-y-5">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Symbol</label>
+                            <input type="text" id="symbol" required class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-indigo-300 text-sm py-2.5 px-3" placeholder="BTCUSDT" value="BTCUSDT">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500">Side</label>
+                                <select id="side" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-2">
+                                    <option value="BUY">BUY 🟢</option>
+                                    <option value="SELL">SELL 🔴</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500">Order type</label>
+                                <select id="orderType" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-2">
+                                    <option value="MARKET">Market</option>
+                                    <option value="LIMIT">Limit</option>
+                                    <option value="STOP_LIMIT">Stop-Limit</option>
+                                    <option value="TRAILING_STOP_MARKET">Trailing Stop</option>
+                                    <option value="OCO">OCO (Simulated)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- dynamic fields -->
+                        <div id="priceField" class="hidden">
+                            <label class="block text-xs font-medium text-gray-600">Price (USDT)</label>
+                            <input type="number" id="price" step="any" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3" placeholder="e.g., 56700">
+                        </div>
+                        <div id="stopPriceField" class="hidden">
+                            <label class="block text-xs font-medium text-gray-600">Stop Price</label>
+                            <input type="number" id="stopPrice" step="any" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3">
+                        </div>
+                        <div id="stopLimitPriceField" class="hidden">
+                            <label class="block text-xs font-medium text-gray-600">Stop Limit Price</label>
+                            <input type="number" id="stopLimitPrice" step="any" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3">
+                        </div>
+                        <div id="callbackRateField" class="hidden">
+                            <label class="block text-xs font-medium text-gray-600">Callback Rate (%)</label>
+                            <input type="number" id="callbackRate" step="0.1" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3">
+                        </div>
+                        <div id="activationPriceField" class="hidden">
+                            <label class="block text-xs font-medium text-gray-600">Activation Price</label>
+                            <input type="number" id="activationPrice" step="any" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500">Qty / Risk %</label>
+                            <input type="number" id="quantity" step="any" class="mt-1 w-full rounded-lg border-gray-200 bg-gray-50 text-sm py-2.5 px-3" placeholder="0.001 or 2% risk">
+                            <p class="text-[11px] text-gray-400 mt-1">Quantity in base asset or risk %</p>
+                        </div>
+                        <button type="submit" class="w-full bg-gray-900 hover:bg-black text-white font-medium py-2.5 rounded-xl transition-all shadow-sm hover:shadow-md text-sm">Execute order</button>
+                    </form>
+                </div>
             </div>
 
-            <!-- Main Content Area -->
-            <div class="lg:col-span-3 space-y-6">
-                <!-- Price Chart -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-lg font-semibold text-gray-800">Price Chart</h2>
-                        <div class="flex space-x-2">
-                            <select id="chartSymbol" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+            <!-- RIGHT CONTENT (chart + dashboard) -->
+            <div class="lg:col-span-8 xl:col-span-9 space-y-7">
+                <!-- CHART CARD with fixed aspect ratio -->
+                <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
+                    <div class="px-6 pt-5 pb-2 flex flex-wrap justify-between items-center gap-3 border-b border-gray-100">
+                        <div>
+                            <h2 class="text-lg font-semibold text-gray-800">Market Pulse</h2>
+                            <p class="text-xs text-gray-400">Realtime Trading Activity</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <select id="chartSymbol" class="text-sm rounded-lg border-gray-200 bg-gray-50 px-3 py-1.5 focus:ring-indigo-300">
                                 <option value="BTCUSDT">BTCUSDT</option>
                                 <option value="ETHUSDT">ETHUSDT</option>
                                 <option value="BNBUSDT">BNBUSDT</option>
@@ -94,59 +199,123 @@
                                 <option value="XRPUSDT">XRPUSDT</option>
                                 <option value="SOLUSDT">SOLUSDT</option>
                             </select>
-                            <select id="chartInterval" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
-                                <option value="1m">1 Minute</option>
-                                <option value="5m">5 Minutes</option>
-                                <option value="15m">15 Minutes</option>
-                                <option value="1h">1 Hour</option>
+                            <select id="chartInterval" class="text-sm rounded-lg border-gray-200 bg-gray-50 px-3 py-1.5 focus:ring-indigo-300">
+                                <option value="1m">1m</option>
+                                <option value="5m">5m</option>
+                                <option value="15m">15m</option>
+                                <option value="1h">1h</option>
                             </select>
                         </div>
                     </div>
-                    <canvas id="priceChart" class="w-full h-64"></canvas>
-                </div>
-
-                <!-- Account Info -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-lg font-semibold text-gray-800">Account Overview</h2>
-                        <button onclick="loadAccountInfo()" class="bg-gray-200 text-gray-800 py-1 px-3 rounded-md hover:bg-gray-300 text-sm">Refresh</button>
-                    </div>
-                    <div id="accountInfo" class="space-y-2">
-                        <p class="text-gray-600 flex items-center">
-                            <svg class="animate-spin h-5 w-5 mr-2 text-gray-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" id="accountSpinner">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Loading account information...
-                        </p>
+                    <div class="p-5">
+                        <!-- ratio-locked chart wrapper -->
+                        <div class="chart-wrapper mx-auto">
+                            <canvas id="priceChart" class="w-full h-full"></canvas>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Open Positions -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-semibold text-gray-800 mb-4">Open Positions</h2>
-                    <div id="positionsInfo" class="custom-scroll max-h-64 overflow-y-auto">
-                        <p class="text-gray-600 flex items-center">
-                            <svg class="animate-spin h-5 w-5 mr-2 text-gray-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" id="positionsSpinner">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Loading positions...
-                        </p>
+                <!-- ACCOUNT OVERVIEW minimal stats grid -->
+                <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
+                    <div class="px-6 py-4 flex justify-between items-center border-b border-gray-100">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium text-gray-500">Portfolio</span>
+                        </div>
+                        <button onclick="window.loadAccountInfo?.()" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition">⟳ refresh</button>
+                    </div>
+                    <div id="accountInfo" class="p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div class="flex flex-col"><span class="text-gray-400 text-xs">Balance</span><span class="font-semibold text-gray-800">— USDT</span></div>
+                        <div class="flex flex-col"><span class="text-gray-400 text-xs">Equity</span><span class="font-semibold text-gray-800">— USDT</span></div>
+                        <div class="flex flex-col"><span class="text-gray-400 text-xs">Unrealized P&L</span><span class="font-semibold">—</span></div>
+                        <div class="flex flex-col"><span class="text-gray-400 text-xs">Available</span><span class="font-semibold">—</span></div>
                     </div>
                 </div>
 
-                <!-- Open Orders -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-semibold text-gray-800 mb-4">Open Orders</h2>
-                    <div id="ordersInfo" class="custom-scroll max-h-64 overflow-y-auto">
-                        <p class="text-gray-600 flex items-center">
-                            <svg class="animate-spin h-5 w-5 mr-2 text-gray-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" id="ordersSpinner">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <!-- POSITIONS card with scroll -->
+                <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
+                    <div class="px-6 py-4 border-b border-gray-100">
+                        <h3 class="flex items-center gap-2 font-medium text-gray-800">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                >
+                                <path d="M7 4v16" />
+                                <path d="M17 4v16" />
+
+                                <rect x="5" y="7" width="4" height="6" rx="1" />
+                                <rect x="15" y="11" width="4" height="6" rx="1" />
                             </svg>
-                            Loading orders...
-                        </p>
+                            Open positions</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="pl-10 pr-3 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entry Price</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unrealized P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionsTableBody" class="bg-white divide-y divide-gray-100">
+                                <tr>
+                                    <td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">Loading positions...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ORDERS card -->
+                <div class="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
+                    <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                        <h3 class="flex items-center gap-2 font-medium text-gray-800">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                >
+                                <rect x="4" y="5" width="16" height="14" rx="2" />
+                                <path d="M8 9h8" />
+                                <path d="M8 13h5" />
+                                <path d="M16 13h.01" />
+                                </svg>
+                            Active orders
+                        </h3>
+                        <span class="text-xs text-gray-400">Click cancel to remove</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="pl-10 pr-3 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Side</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersTableBody" class="bg-white divide-y divide-gray-100">
+                                <tr>
+                                    <td colspan="7" class="px-4 py-8 text-center text-gray-400 text-sm">No open orders</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
