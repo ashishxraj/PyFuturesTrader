@@ -1,31 +1,40 @@
-# app/routers/account.py
-from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
-from app.bot import EnhancedTradingBot
-import dotenv
-import os
 
-dotenv.load_dotenv()
+from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
+
+from app.bot import AsyncTradingBot
+from app.database import AsyncSessionLocal, Trade
+from app.dependencies import get_bot
 
 router = APIRouter()
 
-def get_bot():
-    api_key = os.getenv("binance_api_key")
-    api_secret = os.getenv("binance_secret_key")
-    return EnhancedTradingBot(api_key, api_secret, testnet=True)
 
 @router.get("/balance")
-async def get_balance(bot: EnhancedTradingBot = Depends(get_bot)):
-    try:
-        info = bot.get_account_info()
-        return {"balance": info}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_balance(bot: AsyncTradingBot = Depends(get_bot)):
+    return {"balance": await bot.get_account_info()}
+
 
 @router.get("/positions")
-async def get_positions(symbol: Optional[str] = None, bot: EnhancedTradingBot = Depends(get_bot)):
-    try:
-        positions = bot.get_position_info(symbol)
-        return {"positions": positions}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_positions(symbol: Optional[str] = None, bot: AsyncTradingBot = Depends(get_bot)):
+    return {"positions": await bot.get_positions(symbol)}
+
+
+@router.get("/portfolio")
+async def get_portfolio(bot: AsyncTradingBot = Depends(get_bot)):
+    account = await bot.get_account_info()
+    positions = await bot.get_positions()
+
+    async with AsyncSessionLocal() as db:
+        realized = await db.scalar(select(func.coalesce(func.sum(Trade.realized_pnl), 0.0)))
+        commission = await db.scalar(select(func.coalesce(func.sum(Trade.commission), 0.0)))
+
+    unrealized = sum(float(item.get("unRealizedProfit", 0) or 0) for item in positions)
+    return {
+        "wallet_balance": float(account.get("totalWalletBalance", 0) or 0),
+        "available_balance": float(account.get("availableBalance", 0) or 0),
+        "realized_pnl": float(realized or 0),
+        "unrealized_pnl": unrealized,
+        "commission": float(commission or 0),
+        "net_pnl": float(realized or 0) + unrealized - float(commission or 0),
+    }
