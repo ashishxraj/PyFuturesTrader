@@ -1,17 +1,17 @@
 import asyncio
-import inspect
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from binance import AsyncClient
 from binance.exceptions import BinanceAPIException
 from sqlalchemy import select
+import structlog
 
 from app.database import AsyncSessionLocal, Order as DBOrder, Trade
 from app.rate_limiter import RateLimiter
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class AsyncTradingBot:
@@ -25,47 +25,62 @@ class AsyncTradingBot:
         self._sync_task_running = False
 
     async def _ensure_client(self) -> AsyncClient:
-        if self.client is None:
-            self.client = await AsyncClient.create(
-                api_key=self.api_key,
-                api_secret=self.api_secret,
-                testnet=self.testnet,
-            )
-        return self.client
+        """Create or recreate client with automatic reconnection."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            if self.client is not None:
+                try:
+                    # Ping to test connection
+                    await self.client.ping()
+                    return self.client
+                except Exception:
+                    logger.warning("Client ping failed, recreating", attempt=attempt+1)
+                    await self.client.close_connection()
+                    self.client = None
+            try:
+                self.client = await AsyncClient.create(
+                    api_key=self.api_key,
+                    api_secret=self.api_secret,
+                    testnet=self.testnet,
+                )
+                logger.info("Binance client created/recreated")
+                return self.client
+            except Exception as e:
+                logger.error("Failed to create client", error=str(e))
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(2 ** attempt)
+        raise RuntimeError("Could not create Binance client")
 
-    async def _request(self, api_call: Callable[..., Any] | Any, *args, **kwargs):
-        """Run one Binance API request through the shared async rate limiter."""
+    async def _request(self, api_call, *args, **kwargs):
+        """Rate‑limited API call with 429 retry."""
         await self.rate_limiter.acquire()
+        client = await self._ensure_client()
+        method = getattr(client, api_call) if isinstance(api_call, str) else api_call
         try:
-            result = api_call(*args, **kwargs) if callable(api_call) else api_call
-            if inspect.isawaitable(result):
-                return await result
-            return result
+            return await method(*args, **kwargs)
         except BinanceAPIException as exc:
             if exc.code == 429:
                 retry_after = int(getattr(exc, "headers", {}).get("Retry-After", 5))
-                logger.warning("Rate limit hit, retrying after %ss", retry_after)
+                logger.warning("Rate limit hit", retry_after=retry_after)
                 await asyncio.sleep(retry_after)
                 await self.rate_limiter.acquire()
-                result = api_call(*args, **kwargs) if callable(api_call) else api_call
-                if inspect.isawaitable(result):
-                    return await result
-                return result
+                return await method(*args, **kwargs)
             raise
 
     async def get_account_info(self) -> Dict:
-        client = await self._ensure_client()
-        return await self._request(client.futures_account)
+        return await self._request("futures_account")
+    
+    async def sync_account(self) -> Dict:
+        """Force refresh of account info (called on user data stream events)."""
+        return await self.get_account_info()
 
     async def get_positions(self, symbol: str = None) -> List[Dict]:
-        client = await self._ensure_client()
         params = {"symbol": symbol} if symbol else {}
-        positions = await self._request(client.futures_position_information, **params)
-        return positions or []
+        return await self._request("futures_position_information", **params)
 
     async def get_symbol_info(self, symbol: str) -> Optional[Dict]:
-        client = await self._ensure_client()
-        info = await self._request(client.futures_exchange_info)
+        info = await self._request("futures_exchange_info")
         for item in info.get("symbols", []):
             if item.get("symbol") == symbol.upper():
                 return item
@@ -84,10 +99,48 @@ class AsyncTradingBot:
                     return False, f"Below min {min_q}"
                 if quantity > max_q:
                     return False, f"Above max {max_q}"
-                if round(quantity / step, 8) % 1 != 0:
+                # check step multiple using decimal tolerance
+                remainder = round(quantity / step, 8) % 1
+                if remainder > 1e-8:
                     return False, f"Not multiple of step {step}"
         return True, ""
 
+    async def calculate_position_size(
+        self,
+        symbol: str,
+        side: str,
+        risk_percent: float,
+        entry_price: float,
+        stop_loss_price: float,
+    ) -> Optional[float]:
+        """
+        Risk‑based position sizing.
+        risk_percent: % of total wallet balance to risk.
+        Returns quantity in base asset.
+        """
+        account = await self.get_account_info()
+        wallet_balance = float(account.get("totalWalletBalance", 0))
+        if wallet_balance <= 0:
+            return None
+        risk_amount = wallet_balance * (risk_percent / 100.0)
+        price_diff = abs(entry_price - stop_loss_price)
+        if price_diff <= 0:
+            return None
+        quantity = risk_amount / price_diff
+        # Validate against LOT_SIZE
+        valid, _ = await self.validate_quantity(symbol, quantity)
+        if not valid:
+            # floor to step size if needed (simplified)
+            sym_info = await self.get_symbol_info(symbol)
+            step = 0.001
+            for filt in sym_info.get("filters", []):
+                if filt.get("filterType") == "LOT_SIZE":
+                    step = float(filt["stepSize"])
+                    break
+            quantity = round(quantity / step) * step
+        return quantity
+
+    # ----- ORDER PLACEMENT (with fixed STOP_LIMIT) -----
     async def place_market_order(self, symbol: str, side: str, quantity: float) -> Optional[Dict]:
         return await self._place_order(
             symbol=symbol,
@@ -122,10 +175,11 @@ class AsyncTradingBot:
         stop_price: float,
         time_in_force: str = "GTC",
     ) -> Optional[Dict]:
+        # FIXED: use STOP_LIMIT instead of STOP
         return await self._place_order(
             symbol=symbol,
             side=side,
-            order_type="STOP",
+            order_type="STOP_LIMIT",
             quantity=quantity,
             price=price,
             stopPrice=stop_price,
@@ -160,12 +214,7 @@ class AsyncTradingBot:
         stop_price: float,
         stop_limit_price: float,
     ) -> Optional[Dict]:
-        """Binance USD-M Futures has no true OCO endpoint.
-
-        This returns two linked client-side orders: a take-profit limit and a
-        stop-limit. The websocket/order-sync layer can see both, but Binance
-        itself will not atomically cancel the sibling if one fills.
-        """
+        # Keep as client‑side simulated OCO
         limit_order = await self.place_limit_order(symbol, side, quantity, price)
         stop_order = await self.place_stop_limit_order(
             symbol=symbol,
@@ -180,20 +229,12 @@ class AsyncTradingBot:
             "orders": [order for order in (limit_order, stop_order) if order],
         }
 
-    async def _place_order(
-        self,
-        symbol: str,
-        side: str,
-        order_type: str,
-        quantity: float,
-        **params,
-    ) -> Optional[Dict]:
+    async def _place_order(self, symbol: str, side: str, order_type: str, quantity: float, **params) -> Optional[Dict]:
         valid, err = await self.validate_quantity(symbol, quantity)
         if not valid:
             logger.error(err)
             return None
 
-        client = await self._ensure_client()
         request_params = {
             "symbol": symbol.upper(),
             "side": side.upper(),
@@ -201,11 +242,12 @@ class AsyncTradingBot:
             "quantity": quantity,
             **params,
         }
-        order = await self._request(client.futures_create_order, **request_params)
+        order = await self._request("futures_create_order", **request_params)
         await self._save_order(order, request_params)
         await self.sync_order_status(symbol.upper(), str(order["orderId"]))
         return order
 
+    # ----- DB helpers & sync methods (unchanged but keep for brevity) -----
     async def _save_order(self, order: Dict, request_params: Dict) -> None:
         async with AsyncSessionLocal() as db:
             order_id = str(order["orderId"])
@@ -229,29 +271,20 @@ class AsyncTradingBot:
             await db.commit()
 
     async def get_order_status(self, symbol: str, order_id: str) -> Dict:
-        client = await self._ensure_client()
-        return await self._request(client.futures_get_order, symbol=symbol.upper(), orderId=order_id)
+        return await self._request("futures_get_order", symbol=symbol.upper(), orderId=order_id)
 
     async def get_open_orders(self, symbol: str = None) -> List[Dict]:
-        client = await self._ensure_client()
         params = {"symbol": symbol.upper()} if symbol else {}
-        return await self._request(client.futures_get_open_orders, **params) or []
+        return await self._request("futures_get_open_orders", **params) or []
 
     async def cancel_order(self, symbol: str, order_id: str) -> Dict:
-        client = await self._ensure_client()
-        result = await self._request(
-            client.futures_cancel_order,
-            symbol=symbol.upper(),
-            orderId=order_id,
-        )
+        result = await self._request("futures_cancel_order", symbol=symbol.upper(), orderId=order_id)
         await self._update_order_status(str(order_id), result.get("status", "CANCELED"))
         return result
 
     async def get_historical_orders(self, limit: int = 100) -> List[DBOrder]:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(DBOrder).order_by(DBOrder.created_at.desc()).limit(limit)
-            )
+            result = await db.execute(select(DBOrder).order_by(DBOrder.created_at.desc()).limit(limit))
             return list(result.scalars().all())
 
     async def sync_order_status(self, symbol: str, order_id: str) -> Optional[Dict]:
@@ -265,11 +298,8 @@ class AsyncTradingBot:
 
     async def sync_open_order_states(self) -> None:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(DBOrder).where(DBOrder.status.in_(["NEW", "PARTIALLY_FILLED"]))
-            )
+            result = await db.execute(select(DBOrder).where(DBOrder.status.in_(["NEW", "PARTIALLY_FILLED"])))
             open_orders = list(result.scalars().all())
-
         for order in open_orders:
             try:
                 await self.sync_order_status(order.symbol, order.order_id)
@@ -305,16 +335,10 @@ class AsyncTradingBot:
                 await db.commit()
 
     async def _save_trades_for_order(self, symbol: str, order_id: str, order: Dict) -> None:
-        client = await self._ensure_client()
-        trades = await self._request(
-            client.futures_account_trades,
-            symbol=symbol.upper(),
-            orderId=order_id,
-        )
+        trades = await self._request("futures_account_trades", symbol=symbol.upper(), orderId=order_id)
         if not trades:
             await self._save_trade_snapshot(order)
             return
-
         async with AsyncSessionLocal() as db:
             for trade in trades:
                 exists = await self._trade_exists(
@@ -380,9 +404,8 @@ class AsyncTradingBot:
             await db.commit()
 
     async def get_listen_key(self) -> str:
-        client = await self._ensure_client()
         if not self._listen_key:
-            self._listen_key = await self._request(client.futures_stream_get_listen_key)
+            self._listen_key = await self._request("futures_stream_get_listen_key")
         return self._listen_key
 
     async def keep_alive_listen_key(self) -> None:
@@ -390,8 +413,7 @@ class AsyncTradingBot:
             await asyncio.sleep(30 * 60)
             if self._listen_key:
                 try:
-                    client = await self._ensure_client()
-                    await self._request(client.futures_stream_keepalive, self._listen_key)
+                    await self._request("futures_stream_keepalive", self._listen_key)
                     logger.info("ListenKey keepalive sent")
                 except Exception:
                     logger.exception("Failed to keep listenKey alive")
